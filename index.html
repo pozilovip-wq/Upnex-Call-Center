@@ -1,0 +1,293 @@
+import React, { useEffect, useState } from "react";
+
+// Upnex Call-Center CRM
+// Single-file React component using Tailwind CSS classes
+// - Stores contacts in localStorage (key: 'upnex_calls')
+// - Add / Edit / Delete entries
+// - Search, sort, export CSV
+// - Lightweight and ready to drop into a Create React App or Vite project
+
+export default function UpnexCallCenterCRM() {
+  const STORAGE_KEY = "upnex_calls";
+
+  const emptyForm = {
+    id: null,
+    fullname: "",
+    phone: "",
+    email: "",
+    reason: "",
+    notes: "",
+    timestamp: null,
+  };
+
+  const [form, setForm] = useState(emptyForm);
+  const [calls, setCalls] = useState([]);
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [sortBy, setSortBy] = useState("timestamp");
+  const [sortDir, setSortDir] = useState("desc");
+
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try {
+        setCalls(JSON.parse(raw));
+      } catch (e) {
+        console.error("Failed to parse stored calls", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(calls));
+  }, [calls]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+  }
+
+  function resetForm() {
+    setForm(emptyForm);
+    setEditing(false);
+  }
+
+  function handleSave(e) {
+    e.preventDefault();
+    if (!form.fullname.trim() || !form.phone.trim()) {
+      alert("Please enter at least full name and phone number.");
+      return;
+    }
+
+    if (editing && form.id) {
+      // update
+      setCalls((prev) =>
+        prev.map((c) => (c.id === form.id ? { ...form, timestamp: form.timestamp || Date.now() } : c))
+      );
+    } else {
+      // create
+      const newCall = {
+        ...form,
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+      };
+      setCalls((prev) => [newCall, ...prev]);
+    }
+
+    resetForm();
+  }
+
+  function handleEdit(call) {
+    setForm({ ...call });
+    setEditing(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleDelete(id) {
+    if (!confirm("Delete this entry?")) return;
+    setCalls((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  function exportCSV() {
+    if (!calls.length) {
+      alert("No data to export.");
+      return;
+    }
+    const header = ["Full Name", "Phone", "Email", "Reason", "Notes", "Timestamp"];
+    const rows = calls.map((c) => [
+      escapeCsv(c.fullname),
+      escapeCsv(c.phone),
+      escapeCsv(c.email),
+      escapeCsv(c.reason),
+      escapeCsv(c.notes),
+      new Date(c.timestamp).toISOString(),
+    ]);
+    const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `upnex_calls_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function escapeCsv(str = "") {
+    if (typeof str !== "string") str = String(str || "");
+    if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
+  function importSampleData() {
+    const sample = [
+      {
+        id: "s1",
+        fullname: "Olloyor Akhmedov",
+        phone: "+998504553355",
+        email: "",
+        reason: "Scholarship inquiry",
+        notes: "Has passport, needs documents",
+        timestamp: Date.now() - 1000 * 60 * 60 * 24,
+      },
+      {
+        id: "s2",
+        fullname: "Jamshidbek Isayev",
+        phone: "+998901234567",
+        email: "jam@example.uz",
+        reason: "Application help",
+        notes: "Wants US bachelor program",
+        timestamp: Date.now() - 1000 * 60 * 60 * 2,
+      },
+    ];
+    setCalls((prev) => [...sample, ...prev]);
+  }
+
+  function clearAll() {
+    if (!confirm("Clear all saved calls? This cannot be undone.")) return;
+    setCalls([]);
+  }
+
+  function filteredAndSorted() {
+    const q = query.trim().toLowerCase();
+    let filtered = calls.filter((c) => {
+      if (!q) return true;
+      return (
+        (c.fullname || "").toLowerCase().includes(q) ||
+        (c.phone || "").toLowerCase().includes(q) ||
+        (c.reason || "").toLowerCase().includes(q) ||
+        (c.notes || "").toLowerCase().includes(q)
+      );
+    });
+
+    filtered.sort((a, b) => {
+      let av = a[sortBy];
+      let bv = b[sortBy];
+      if (sortBy === "fullname" || sortBy === "reason") {
+        av = (av || "").toLowerCase();
+        bv = (bv || "").toLowerCase();
+        if (av < bv) return sortDir === "asc" ? -1 : 1;
+        if (av > bv) return sortDir === "asc" ? 1 : -1;
+        return 0;
+      }
+      // default: numeric timestamp
+      av = av || 0;
+      bv = bv || 0;
+      return sortDir === "asc" ? av - bv : bv - av;
+    });
+
+    return filtered;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="max-w-6xl mx-auto">
+        <header className="mb-6">
+          <h1 className="text-3xl font-bold">Upnex Call‑Center CRM</h1>
+          <p className="text-sm text-slate-600">Quickly store caller name, phone, reason, notes — saved in your browser. Export as CSV.</p>
+        </header>
+
+        <form onSubmit={handleSave} className="bg-white p-4 rounded-lg shadow mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium">Full name</label>
+              <input name="fullname" value={form.fullname} onChange={handleChange} className="mt-1 block w-full border rounded p-2" placeholder="Full name" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium">Phone</label>
+              <input name="phone" value={form.phone} onChange={handleChange} className="mt-1 block w-full border rounded p-2" placeholder="+998..." />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium">Email (optional)</label>
+              <input name="email" value={form.email} onChange={handleChange} className="mt-1 block w-full border rounded p-2" placeholder="email@example.com" />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium">Reason</label>
+              <input name="reason" value={form.reason} onChange={handleChange} className="mt-1 block w-full border rounded p-2" placeholder="e.g., Scholarship inquiry, Visa question" />
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="block text-sm font-medium">Notes</label>
+              <textarea name="notes" value={form.notes} onChange={handleChange} className="mt-1 block w-full border rounded p-2" rows={3} placeholder="Short notes about the call"></textarea>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded shadow">{editing ? "Save changes" : "Add call"}</button>
+            <button type="button" onClick={resetForm} className="border px-3 py-2 rounded">Reset</button>
+
+            <div className="ml-auto flex items-center gap-2">
+              <button type="button" onClick={importSampleData} className="text-sm underline">Import sample</button>
+              <button type="button" onClick={exportCSV} className="text-sm underline">Export CSV</button>
+              <button type="button" onClick={clearAll} className="text-sm text-red-600 underline">Clear all</button>
+            </div>
+          </div>
+        </form>
+
+        <section className="mb-4 flex flex-col md:flex-row gap-3 items-start md:items-center">
+          <input placeholder="Search by name, phone, reason or notes" value={query} onChange={(e) => setQuery(e.target.value)} className="flex-1 border rounded p-2" />
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm">Sort:</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="border rounded p-2">
+              <option value="timestamp">Date</option>
+              <option value="fullname">Full name</option>
+              <option value="reason">Reason</option>
+            </select>
+            <button onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))} className="border rounded px-3 py-2">{sortDir === "asc" ? "↑" : "↓"}</button>
+          </div>
+        </section>
+
+        <section>
+          <div className="bg-white rounded shadow overflow-x-auto">
+            <table className="min-w-full text-sm table-auto">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="p-2 text-left">Name</th>
+                  <th className="p-2 text-left">Phone</th>
+                  <th className="p-2 text-left">Email</th>
+                  <th className="p-2 text-left">Reason</th>
+                  <th className="p-2 text-left">Notes</th>
+                  <th className="p-2 text-left">Date</th>
+                  <th className="p-2 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAndSorted().length === 0 ? (
+                  <tr>
+                    <td className="p-4 text-center" colSpan={7}>No records found.</td>
+                  </tr>
+                ) : (
+                  filteredAndSorted().map((c) => (
+                    <tr key={c.id} className="border-t hover:bg-slate-50">
+                      <td className="p-2">{c.fullname}</td>
+                      <td className="p-2">{c.phone}</td>
+                      <td className="p-2">{c.email}</td>
+                      <td className="p-2">{c.reason}</td>
+                      <td className="p-2 truncate max-w-[18rem]">{c.notes}</td>
+                      <td className="p-2">{c.timestamp ? new Date(c.timestamp).toLocaleString() : "-"}</td>
+                      <td className="p-2">
+                        <div className="flex gap-2">
+                          <button onClick={() => handleEdit(c)} className="text-sm underline">Edit</button>
+                          <button onClick={() => handleDelete(c.id)} className="text-sm text-red-600 underline">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer className="mt-6 text-sm text-slate-500">
+          Tip: this saves data in your browser (localStorage). If you want a shared database for your whole team we can add a backend (Google Sheets, Airtable, Supabase or simple Node API + Postgres). Tell me which one and I will add it.
+        </footer>
+      </div>
+    </div>
+  );
+}
